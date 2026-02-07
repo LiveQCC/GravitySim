@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="GravitySim/GravitySim.vcxproj" Id="e203c79f-e520-4668-b338-dd3594de7287" />
+</Solution>
