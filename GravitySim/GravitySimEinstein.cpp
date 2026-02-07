@@ -2,7 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-
+#include <algorithm> 
 
 const double G = 6.67430e-11;
 const double SCALE = 1.0e6;
@@ -78,7 +78,24 @@ public:
             }
         }
     }
+    sf::Vector2f getDisplacedPosition(sf::Vector2f p, const Body& b1, const Body& b2) const {
+        float dist_min = 0.0f;
+        float dist_max = 3000.0f;
+        float strength_max = 0.5f;
+        float strength_min = 0.0f;
 
+        sf::Vector2f delta1 = b1.position - p;
+        float dist1 = std::sqrt(delta1.x * delta1.x + delta1.y * delta1.y);
+        float t1 = (std::clamp(dist1, dist_min, dist_max) - dist_min) / (dist_max - dist_min);
+        float strength1 = strength_max + t1 * (strength_min - strength_max);
+
+        sf::Vector2f delta2 = b2.position - p;
+        float dist2 = std::sqrt(delta2.x * delta2.x + delta2.y * delta2.y);
+        float t2 = (std::clamp(dist2, dist_min, dist_max) - dist_min) / (dist_max - dist_min);
+        float strength2 = strength_max + t2 * (strength_min - strength_max);
+
+        return p + (delta1 * strength1) + (delta2 * strength2);
+    }
     void update(const Body& massiveBody, const Body& orbitBody ) {
        //sf::Vector2f center = massiveBody.position;
         //sf::Vector2f center = orbitBody.position;
@@ -109,14 +126,58 @@ public:
         }
     }
 
+
+
+
     void render(sf::RenderWindow& window) {
         window.draw(lines);
     }
 };
+
+struct LightRay {
+    sf::Vector2f position;
+    sf::Vector2f velocity;
+    sf::VertexArray path;
+    float distanceTraveled;
+    bool active = true;
+
+    LightRay(float yStart) {
+        position = sf::Vector2f(-800.0f, -yStart);
+        velocity = sf::Vector2f(8.0f, 0.0f); // Speed of light (pixels per frame)
+        path.setPrimitiveType(sf::LineStrip);
+    }
+
+    void update(const SpacetimeGrid& grid, const Body& b1, const Body& b2) {
+        if (!active) return;
+        position += velocity;
+       
+       // if (position.x == b1.position.x || position.y == b1.position.y);
+
+  
+        sf::Vector2f warpedPos = grid.getDisplacedPosition(position, b1, b2);
+       // distanceTraveled += warpedPos.x;
+       // float  deltaX = b1.position.x - warpedPos.x;
+        //printf("deltaX %.2f Position X %.2f Raidus %.2f", deltaX,b1.position.x, b1.radius);
+
+        sf::Vector2f delta = b1.position - warpedPos;
+        sf::Vector2f delta2 = b2.position - warpedPos;
+        float dist2 = std::sqrt(delta2.x * delta2.x + delta2.y * delta2.y);
+        float dist = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+        float alpha = std::clamp(255.0f * (1.0f - (warpedPos.x+300.0f) / 2200.0f), 0.0f, 255.0f);
+        if (alpha < 0) alpha = 0;
+        sf::Color fadeColor(255, 255, 100, static_cast<sf::Uint8>(-alpha));
+     
+        path.append(sf::Vertex(warpedPos, fadeColor));
+        if (dist < b1.radius/SCALE || dist2 < b2.radius/SCALE) active = false;
+        if (warpedPos.x > 1600) active = false;
+
+    }
+};
+
 int main() {
     sf::RenderWindow window(sf::VideoMode(1600, 1000), "Orbital Mechanics & Spacetime");
     window.setFramerateLimit(60);
-
+    std::vector<LightRay> rays;
     // 1. Setup Bodies
     double mass_earth = 5.972e24;
     double radius_earth = 6.371e6;
@@ -149,9 +210,16 @@ int main() {
         while (window.pollEvent(event))
         {
             if (event.type == sf::Event::Closed) window.close();
+            if (event.type == sf::Event::KeyPressed) {
+                if (event.key.code == sf::Keyboard::B) {
+                    for (int i = -10; i < 10; ++i) {
+                        rays.push_back(LightRay(i*80));
+                    }
+                }
+            }
         }
         if (event.type == sf::Event::MouseMoved) {
-        //  Earth.set_position(event.mouseMove.x, event.mouseMove.y);
+         // Earth.set_position(event.mouseMove.x, event.mouseMove.y);
         }
 
         double dt_seconds = clock.restart().asSeconds();
@@ -183,22 +251,32 @@ int main() {
 
         Earth.position.x += (Earth.velocity.x * dt) / SCALE;
         Earth.position.y += (Earth.velocity.y * dt) / SCALE;
-
-
+       
+        for (auto& ray : rays) {
+            ray.update(grid, Earth, Moon);
+        }
+        rays.erase(std::remove_if(rays.begin(), rays.end(),
+            [](const LightRay& r) { return !r.active; }), rays.end());
   
-      
+    
         grid.update(Earth, Moon);
+
+
       //  grid.update(Earth);
         // if (trail.getVertexCount() > 500) trail.resize(0); 
         trail.append(sf::Vertex(Moon.position, sf::Color(255, 255, 255, 100)));
-        trail.append(sf::Vertex(Earth.position, sf::Color(255, 255, 255, 100)));
+        trailEarth.append(sf::Vertex(Earth.position, sf::Color(255, 255, 255, 100))); //not sure but this visualises the actual path of spacetime in 2d inbetween the bodies? Not what i wanted but pretty cool.
         window.clear(sf::Color::Black);
+        grid.render(window);
+        window.draw(trail);
+        window.draw(trailEarth);
 
-        grid.render(window);     
-        window.draw(trail);      
-        Earth.render(window);    
+        for (const auto& ray : rays) {
+            if (ray.active) window.draw(ray.path);
+        }
+
+        Earth.render(window);
         Moon.render(window);
-
         window.display();
     }
 
